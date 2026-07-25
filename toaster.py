@@ -145,12 +145,22 @@ def capability_id(rci: dict) -> str:
     """Stable hash of what the capability IS, ignoring how it got here."""
     impl = rci.get("impl") or {}
     core = {k: rci.get(k) for k in CAPABILITY_FIELDS}
-    core["impl"] = {
-        "perform": impl.get("perform"),
-        "perform_body": impl.get("perform_body"),
-        "steps": impl.get("steps"),
-        "class": impl.get("class"),
-    }
+    # When a step list exists it IS the deterministic layer, and perform() is
+    # merely its rendering into Python -- so including both would make one
+    # capability hash differently depending on which projection you are looking
+    # at. Steps win; perform only counts when it is the authored article.
+    if impl.get("steps"):
+        core["impl"] = {"steps": impl["steps"]}
+    else:
+        perform = impl.get("perform")
+        # A synthesised perform() is boilerplate this tool wrote, not something
+        # the author supplied. Counting it would mean a capability with NO
+        # deterministic layer acquires one merely by being projected into an
+        # agent -- identity changing as a side effect of looking at it.
+        if perform and GENERATED_PERFORM_MARK in perform:
+            perform = None
+        core["impl"] = {"perform": perform,
+                        "perform_body": impl.get("perform_body")}
     return hashlib.sha256(
         json.dumps(core, sort_keys=True, default=str).encode()).hexdigest()
 
@@ -338,6 +348,19 @@ def read_agent(raw: bytes, filename: str) -> dict:
                         attrs[t.attr] = val
             name, metadata = attrs.get("name"), attrs.get("metadata")
 
+    # A generated agent carries its derived step list as a module-level STEPS
+    # constant. Not recovering it loses the deterministic layer on the way back
+    # in, which shows up as "the capability changed" when nothing did.
+    steps_const = None
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            for t in node.targets:
+                if isinstance(t, ast.Name) and t.id == "STEPS":
+                    try:
+                        steps_const = ast.literal_eval(node.value)
+                    except Exception:
+                        pass
+
     metadata = metadata or {}
     rci["name"] = name or metadata.get("name") or cls.name
     rci["slug"] = rci.get("slug") or _kebab(rci["name"])
@@ -351,6 +374,8 @@ def read_agent(raw: bytes, filename: str) -> dict:
         "perform": perform_src,
         "system_context": sysctx_src,
     }
+    if steps_const:
+        rci["impl"]["steps"] = steps_const
     if sysctx_src and rci.get("system_context") is None:
         rci["system_context"] = "<code>"  # real logic lives in impl
     preserve(rci, "agent", raw, filename)
@@ -475,7 +500,7 @@ def read_openrappter(path: str) -> dict:
 # model in the loop. It RESOLVES and RETURNS the steps -- it deliberately does
 # not execute them, because a capability that shells out on import is a
 # capability nobody can safely audit.
-STEP_PERFORM = '''    def perform(self, **kwargs):
+STEP_PERFORM = '''    def perform(self, **kwargs):  # toaster:generated-perform
         missing = [k for k in self.metadata["parameters"].get("required", [])
                    if k not in kwargs]
         if missing:
@@ -564,7 +589,9 @@ if __name__ == "__main__":
 # {capsule}
 '''
 
-DEFAULT_PERFORM = '''    def perform(self, **kwargs):
+GENERATED_PERFORM_MARK = "# toaster:generated-perform"
+
+DEFAULT_PERFORM = '''    def perform(self, **kwargs):  # toaster:generated-perform
         """Render the capability's instructions with the caller's arguments.
 
         Deterministic: same inputs -> same bytes out. No model call happens
@@ -825,9 +852,11 @@ def write_skill(rci: dict, openclaw: bool = False, bundled: bool = False) -> byt
             "the inputs are too underspecified to build the JSON object.\n"
             "\n<!-- toaster:generated:end -->\n"]
     elif code and not DET_FENCE.search(body):
-        out += ["\n## Deterministic implementation\n\nRun this instead of "
+        out += ["\n<!-- toaster:generated:begin -->\n"
+                "\n## Deterministic implementation\n\nRun this instead of "
                 "improvising when the inputs are well-formed:\n\n"
-                "```python  # rapp:deterministic\n", code.strip(), "\n```\n"]
+                "```python  # rapp:deterministic\n", code.strip(),
+                "\n```\n\n<!-- toaster:generated:end -->\n"]
     if rci.get("examples"):
         out.append("\n## Examples\n\n")
         for ex in rci["examples"]:

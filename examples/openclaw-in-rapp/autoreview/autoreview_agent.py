@@ -77,7 +77,7 @@ class AutoreviewAgent(BasicAgent):
         }
         super().__init__(name=self.name, metadata=self.metadata)
 
-    def perform(self, **kwargs):
+    def perform(self, **kwargs):  # toaster:generated-perform
         missing = [k for k in self.metadata["parameters"].get("required", [])
                    if k not in kwargs]
         if missing:

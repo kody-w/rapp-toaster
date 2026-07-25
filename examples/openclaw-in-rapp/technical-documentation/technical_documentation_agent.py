@@ -51,7 +51,7 @@ class TechnicalDocumentationAgent(BasicAgent):
         }
         super().__init__(name=self.name, metadata=self.metadata)
 
-    def perform(self, **kwargs):
+    def perform(self, **kwargs):  # toaster:generated-perform
         """Render the capability's instructions with the caller's arguments.
 
         Deterministic: same inputs -> same bytes out. No model call happens
