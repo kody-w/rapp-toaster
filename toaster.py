@@ -54,6 +54,16 @@ import textwrap
 RCI_VERSION = "1.0"
 CAPSULE_RE = re.compile(r"rci-capsule:v1:([A-Za-z0-9+/=]+)")
 
+# Sections the toaster itself wrote. They are PRESENTATION, not source: a
+# bundled export injects "## Run this", and if that text is read back in as the
+# capability's instructions it becomes canonical, the synthesised agent changes,
+# and the export stops converging on the same agent as its own source. Marking
+# them makes generated content identifiable so it can never be mistaken for
+# authored content -- the same rule as "a projection must never be mistakable
+# for the thing it projects from", applied inside a single file.
+GENERATED_RE = re.compile(
+    r"\n?<!-- toaster:generated:begin -->.*?<!-- toaster:generated:end -->\n?", re.S)
+
 # Formats the shim speaks.
 FORMATS = ("agent", "skill", "openclaw", "openrappter", "rci")
 
@@ -117,6 +127,32 @@ def restore(rci: dict, fmt: str):
     if _sha(raw) != p["sha256"]:
         raise ValueError(f"preserved {fmt} payload failed its checksum")
     return raw
+
+
+# The fields that ARE the capability. Everything else in the record --
+# `preserved`, `provenance`, `derivation` -- is metadata about the JOURNEY, and
+# two artifacts that mean the same thing will legitimately differ there: each
+# one vaults ITSELF so it can round-trip to itself, and each took a different
+# route to exist. So "did this survive?" must be asked of the capability, not
+# of the bytes of a synthesised file. Conflating the two makes a true statement
+# ("the capability is intact") report as a false one ("the bytes differ").
+CAPABILITY_FIELDS = ("name", "slug", "version", "description", "parameters",
+                     "instructions", "system_context", "author", "tags",
+                     "license", "examples")
+
+
+def capability_id(rci: dict) -> str:
+    """Stable hash of what the capability IS, ignoring how it got here."""
+    impl = rci.get("impl") or {}
+    core = {k: rci.get(k) for k in CAPABILITY_FIELDS}
+    core["impl"] = {
+        "perform": impl.get("perform"),
+        "perform_body": impl.get("perform_body"),
+        "steps": impl.get("steps"),
+        "class": impl.get("class"),
+    }
+    return hashlib.sha256(
+        json.dumps(core, sort_keys=True, default=str).encode()).hexdigest()
 
 
 def pack_capsule(rci: dict) -> str:
@@ -340,6 +376,7 @@ def read_skill(raw: bytes, filename: str) -> dict:
     rci = cap if cap else blank_rci()
 
     fm, body = split_frontmatter(text)
+    body = GENERATED_RE.sub("", body)      # drop what we wrote, keep what they wrote
     body = CAPSULE_RE.sub("", body)
     body = re.sub(r"<!--\s*-->\s*$", "", body).rstrip() + "\n"
 
@@ -750,16 +787,19 @@ def write_skill(rci: dict, openclaw: bool = False, bundled: bool = False) -> byt
     params = rci.get("parameters") or {}
     if params.get("properties"):
         if not PARAM_FENCE.search(body):
-            out += ["\n## Parameters\n\nThe typed contract this capability "
+            out += ["\n<!-- toaster:generated:begin -->\n"
+                    "\n## Parameters\n\nThe typed contract this capability "
                     "answers to (JSON Schema — the deterministic layer):\n\n"
-                    "```json\n", json.dumps(params, indent=2), "\n```\n"]
+                    "```json\n", json.dumps(params, indent=2),
+                    "\n```\n\n<!-- toaster:generated:end -->\n"]
     impl = rci.get("impl") or {}
     if impl.get("steps") and "## Deterministic steps" not in body:
-        out += ["\n## Deterministic steps\n\nLifted verbatim from the procedure above "
+        out += ["\n<!-- toaster:generated:begin -->\n"
+                "\n## Deterministic steps\n\nLifted verbatim from the procedure above "
                 "by `toaster.py toast`. Run them in order, substituting the typed "
                 "parameters; do not paraphrase:\n\n```bash\n"]
         out += [f"{s_['cmd']}\n" for s_ in impl["steps"]]
-        out += ["```\n"]
+        out += ["```\n\n<!-- toaster:generated:end -->\n"]
     code = impl.get("perform") or impl.get("perform_body")
 
     # The export answer: on a host with NO RAPP and no framework, determinism
@@ -769,6 +809,7 @@ def write_skill(rci: dict, openclaw: bool = False, bundled: bool = False) -> byt
     if bundled and code:
         fn = agent_filename(rci)
         out += [
+            "\n<!-- toaster:generated:begin -->\n"
             "\n## Run this — do not improvise\n\n"
             "This capability has a **deterministic implementation** shipped next to "
             f"this file as `{fn}`. It is stdlib-only Python with no install step and "
@@ -781,7 +822,8 @@ def write_skill(rci: dict, openclaw: bool = False, bundled: bool = False) -> byt
             f"python3 {fn} --tool                      # emit the JSON tool contract\n"
             "```\n\n"
             "Only fall back to the prose procedure above if the file is missing or "
-            "the inputs are too underspecified to build the JSON object.\n"]
+            "the inputs are too underspecified to build the JSON object.\n"
+            "\n<!-- toaster:generated:end -->\n"]
     elif code and not DET_FENCE.search(body):
         out += ["\n## Deterministic implementation\n\nRun this instead of "
                 "improvising when the inputs are well-formed:\n\n"
@@ -970,6 +1012,8 @@ def cmd_inspect(a) -> int:
           f" | system_context: {'yes' if rci.get('system_context') else 'no'}")
     print(f"PROCEDURAL    instructions: {len(rci.get('instructions') or '')} chars")
     print(f"platform      {', '.join(rci.get('platform', {})) or 'none'}")
+    print(f"capability-id {capability_id(rci)[:24]}  (identity of WHAT it is,"
+          f" independent of route)")
     print(f"preserved     {', '.join(rci.get('preserved', {})) or 'none'} "
           f"(these convert back byte-exact)")
     print(f"provenance    {' -> '.join(rci.get('provenance', []))}")

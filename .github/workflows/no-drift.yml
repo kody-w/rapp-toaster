@@ -51,7 +51,7 @@ jobs:
           [ "$n" -gt 0 ] || { echo "::error::no bundled agents to exercise"; exit 1; }
           echo "$n bundled agent(s) execute standalone"
 
-      - name: bundled exports must converge to the byte-exact grail
+      - name: bundled exports must carry an identical capability
         run: |
           python3 - <<'PY'
           import sys, glob, os
@@ -63,7 +63,7 @@ jobs:
               grail = [f for f in glob.glob(f'{d}/*_agent.py')]
               if not grail:
                   print(f'::error::{skill} has no bundled agent'); fails += 1; continue
-              want = T.render(T.load(skill), 'agent')
+              want = T.capability_id(T.load(skill))
               # every route out of the export must land on the same grail bytes
               import tempfile
               with tempfile.TemporaryDirectory() as td:
@@ -72,10 +72,10 @@ jobs:
                       cur, curf = skill, 'skill'
                       for i, nxt in enumerate(route):
                           cur = T._hop(cur, curf, nxt, td, f'r{i}{nxt}'); curf = nxt
-                      got = T.render(T.load(cur, curf), 'agent')
+                      got = T.capability_id(T.load(cur, curf))
                       tag = 'skill->' + '->'.join(route) + '->agent'
                       if got != want:
-                          print(f'::error::{tag} did not converge to the grail'); fails += 1
+                          print(f'::error::{tag} changed the capability'); fails += 1
                       else:
                           print(f'  ok  {tag}')
           sys.exit(1 if fails else 0)

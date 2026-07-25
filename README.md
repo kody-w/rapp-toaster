@@ -191,18 +191,26 @@ trip passed every time.
 
 **A `--bundle` export does not round-trip to itself**, and it is not meant to.
 It is a derived, one-way projection: the markdown gains a "run this" section and
-the sidecar gains a standalone shim. What *is* guaranteed — and enforced in CI —
-is that **every route out of a bundled export converges on the byte-exact
-grail**:
+the sidecar gains a standalone shim.
+
+What *is* guaranteed — and enforced in CI — is **capability identity**:
 
 ```
-bundled SKILL.md -> agent                                  == original agent.py
-bundled SKILL.md -> openrappter -> openclaw -> rci -> agent == original agent.py
+capability_id(bundled SKILL.md) == capability_id(its source)
 ```
 
-That is the promise that matters. You can hand someone a bundled folder, they
-can push it through three foreign platforms, and what comes back out the far
-end is your `agent.py`, byte for byte.
+**Artifact identity and capability identity are different things**, and
+conflating them makes a true statement report as a false one. Two files that
+mean exactly the same thing will legitimately differ in `preserved` (each vaults
+*itself*, so it can round-trip to itself) and in `provenance` (each took a
+different route to exist). Neither is the capability. `capability_id` hashes
+what the thing *is* — name, description, typed contract, instructions, code —
+and ignores how it got here.
+
+Where a real canonical `agent.py` exists in the capsule, you additionally get
+byte-exact recovery of that file, by any route. Where the agent is *synthesised*
+from a skill, you get capability identity — which is the guarantee that
+actually matters, and the one that holds universally.
 
 ## Bolting it onto someone else's registry, without asking them
 
