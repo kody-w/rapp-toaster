@@ -96,6 +96,29 @@ Determinism survives because the *same bytes execute*. The host model never
 paraphrases the procedure — it shells out. The toaster refuses to claim
 `EXEC` without actually running the bundled file first.
 
+## Raw bread must be toasted first
+
+A hand-written `SKILL.md` is **raw bread**. It carries no capsule, so there is
+nothing canonical to restore from — every conversion has to *synthesise*, and
+synthesis is a re-render, not a recovery. Feed raw bread straight into the loop
+and you are measuring whether two renders agree, not whether fidelity held.
+
+**Toasting** is the one-time normalising pass that lets bread enter the loop:
+
+```bash
+toaster.py toast some/SKILL.md      # embeds the capsule; idempotent
+toaster.py soak  some/SKILL.md      # now every guarantee below applies
+```
+
+`soak` refuses raw bread rather than quietly reporting a meaningless pass
+(`--allow-raw` overrides if you really want to watch synthesis wobble).
+
+After toasting, the toasted artifact is the canonical form for that format —
+the raw original is superseded, not lost: every other format's bytes are still
+vaulted in the capsule. Toasting toast is a no-op.
+
+> Bread goes in. **Toast** comes out. Only toast plays in the loop.
+
 ## Proving it doesn't drift
 
 `soak` tests three properties a single round trip cannot see:
@@ -151,7 +174,8 @@ end is your `agent.py`, byte for byte.
 toaster.py convert <path> --to agent|skill|openclaw|openrappter|rci [--bundle] [-o OUT]
 toaster.py inspect <path>               # what survives, layer by layer
 toaster.py roundtrip <path> --via FMT   # byte-exact check, exit 1 on drift
-toaster.py soak <path>... [--depth N] [--cycles N]
+toaster.py toast <path>...              # raw bread -> loop-safe toast (idempotent)
+toaster.py soak <path>... [--depth N] [--cycles N] [--allow-raw]
 toaster.py selftest
 ```
 

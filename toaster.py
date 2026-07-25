@@ -1002,6 +1002,13 @@ def cmd_soak(a) -> int:
     failures = []
 
     skipped = []
+    raw = [p for p in targets if is_raw(p)]
+    if raw and not getattr(a, "allow_raw", False):
+        print("RAW BREAD -- toast it first, or the soak measures the wrong thing:")
+        for p in raw:
+            print(f"  {p}")
+        print("  run:  toaster.py toast <path>...   (then re-run soak)")
+        return 2
     for path in targets:
         try:
             src_fmt = detect(path)
@@ -1177,6 +1184,76 @@ def _compiles(src: str) -> bool:
         return False
 
 
+# --------------------------------------------------------------------------
+# toast -- raw bread must be toasted before it enters the loop
+# --------------------------------------------------------------------------
+#
+# A hand-written SKILL.md is RAW BREAD. It carries no RCI capsule, so there is
+# nothing to restore from: every conversion has to SYNTHESISE, and synthesis is
+# a re-render, not a recovery. That is why raw bread cannot round-trip
+# byte-exact and must not be fed straight into the loop -- you would be testing
+# whether two renders agree, not whether fidelity held.
+#
+# Toasting is the one-time normalising pass that turns bread into toast: it
+# gives the artifact a capsule (so it has a canonical form to restore) and
+# surfaces whatever deterministic layer it declared. After toasting, every
+# guarantee in this file applies -- byte-exact round trips, path independence,
+# fixed point. Before toasting, none of them do.
+#
+# Toast is idempotent: toasting toast is a no-op.
+
+def is_raw(path: str, fmt: str = None) -> bool:
+    """Raw bread = no capsule = nothing canonical to restore from."""
+    try:
+        fmt = fmt or detect(path)
+    except Exception:
+        return True
+    if fmt == "openrappter":
+        d = path if os.path.isdir(path) else os.path.dirname(path) or "."
+        f = os.path.join(d, "skill.json")
+        try:
+            return "x-rci" not in json.load(open(f))
+        except Exception:
+            return True
+    try:
+        return unpack_capsule(open(path, encoding="utf-8", errors="replace").read()) is None
+    except Exception:
+        return True
+
+
+def cmd_toast(a) -> int:
+    rc = 0
+    for path in a.paths:
+        fmt = detect(path)
+        if not is_raw(path, fmt) and not a.force:
+            print(f"  already toast   {path}")
+            continue
+        rci = load(path, fmt)
+        # Drop the vaulted copy of the RAW input before rendering. Otherwise
+        # render() faithfully restores the very bytes we are trying to replace
+        # and toasting silently no-ops -- which is exactly what it did until
+        # the idempotence check caught it. Toast becomes the new canonical
+        # form for this format; the raw original is superseded, not lost
+        # (every other format's preserved entry survives in the capsule).
+        rci.setdefault("preserved", {}).pop(fmt, None)
+        rci.setdefault("provenance", []).append(f"toast:{fmt}")
+        out = render(rci, fmt)                       # now carries a capsule
+        target = path if fmt != "openrappter" else path
+        emit(out, target)
+        # prove it: the freshly toasted artifact must round-trip byte-exact
+        again = render(load(target, fmt), fmt)
+        again = again["skill.json"] if isinstance(again, dict) else again
+        cur = _bytes_of(target, fmt)
+        ok = (again == cur)
+        params = len((rci.get("parameters") or {}).get("properties", {}))
+        print(f"  {'toasted' if ok else 'TOASTED-BUT-UNSTABLE'}  {path}"
+              f"   [capsule embedded, {params} typed param(s)]")
+        if not ok:
+            print("     round trip did not stabilise -- do not feed this to the loop")
+            rc = 1
+    return rc
+
+
 def main() -> int:
     p = argparse.ArgumentParser(
         prog="agentshim",
@@ -1197,11 +1274,19 @@ def main() -> int:
                         "host to execute it — keeps determinism on plain SKILL.md hosts")
     c.set_defaults(fn=cmd_convert)
 
+    t = sub.add_parser("toast", help="normalise raw bread (a capsule-less SKILL.md) "
+                                     "so it can enter the loop; idempotent")
+    t.add_argument("paths", nargs="+")
+    t.add_argument("--force", action="store_true", help="re-toast even if already toast")
+    t.set_defaults(fn=cmd_toast)
+
     k = sub.add_parser("soak", help="hammer conversions in every direction; "
                                     "catches accumulated drift a single round trip misses")
     k.add_argument("paths", nargs="+")
     k.add_argument("--depth", type=int, default=3,
                    help="max intermediate hops per route (default 3)")
+    k.add_argument("--allow-raw", action="store_true", dest="allow_raw",
+                   help="soak capsule-less artifacts anyway (expect synthesis, not recovery)")
     k.add_argument("--cycles", type=int, default=25,
                    help="fixed-point cycles (default 25)")
     k.set_defaults(fn=cmd_soak)
