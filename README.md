@@ -204,6 +204,47 @@ That is the promise that matters. You can hand someone a bundled folder, they
 can push it through three foreign platforms, and what comes back out the far
 end is your `agent.py`, byte for byte.
 
+## Bolting it onto someone else's registry, without asking them
+
+A migration needs the platform's buy-in — someone has to change a format, ship
+a converter, deprecate a path. **A shim needs nobody's permission.** That is
+what makes it a shim, and it is a falsifiable claim, so here it is falsified:
+
+```bash
+./bridges/openclaw.sh
+```
+
+That fetches openclaw's entire public skill corpus, toasts it, projects every
+skill into a single-file stdlib-only agent, and proves each one converts back
+to openclaw's own bytes exactly. Run against `openclaw/openclaw` (384k★) and
+`openclaw/agent-skills`:
+
+```
+50 skills found; 50 fetched
+toasted 50  |  89 typed param(s), 333 step(s) derived
+9 skill(s) yielded NOTHING machine-recoverable
+50 agent(s) emitted; 50 run standalone and declare a tool contract
+50 byte-exact, 0 drifted
+3600 conversions — NO DRIFT
+```
+
+**openclaw was not modified, not asked, and not waited on.** Their repository is
+read-only to this; nothing is upstreamed.
+
+Every one of those 50 skills is now *additionally* a file anyone can
+`python3 agent.py` with zero install, a standard function-calling tool
+definition, and droppable into any runtime that reads single-file agents — while
+remaining a perfectly normal openclaw skill.
+
+And the honest part: **9 of 50 yielded nothing machine-recoverable.** Prose-heavy
+skills declare little that can be derived conservatively. That is the
+measurement working, and it says something uncomfortable about the corpus rather
+than about the tool.
+
+If openclaw adopts this natively it gets better for everyone — the capsule
+travels from publication, provenance starts at the source instead of at our
+fetch, and authors get the oracle in CI. Nobody has to wait for that.
+
 ## Commands
 
 ```
