@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Toasted Skills — a skill that can prove it still means what it meant</title>
+<meta name="description" content="rapp-capability-interchange/1.0 — an additive standard that gives SKILL.md a canonical record, a drift oracle, and single-file agent portability. No migration.">
+<style>
+  :root{
+    --bg:#fbfaf8; --fg:#1a1714; --dim:#6b625a; --line:#e6e0d8;
+    --accent:#c2410c; --accent-soft:#fff4ed; --code:#f4f1ec; --ok:#15803d;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{--bg:#141210;--fg:#ece7e1;--dim:#a09589;--line:#2c2724;
+          --accent:#fb923c;--accent-soft:#241a12;--code:#1e1b18;--ok:#4ade80}
+  }
+  :root[data-theme="dark"]{--bg:#141210;--fg:#ece7e1;--dim:#a09589;--line:#2c2724;
+          --accent:#fb923c;--accent-soft:#241a12;--code:#1e1b18;--ok:#4ade80}
+  :root[data-theme="light"]{--bg:#fbfaf8;--fg:#1a1714;--dim:#6b625a;--line:#e6e0d8;
+          --accent:#c2410c;--accent-soft:#fff4ed;--code:#f4f1ec;--ok:#15803d}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+       font:16px/1.65 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+       -webkit-font-smoothing:antialiased}
+  .wrap{max-width:52rem;margin:0 auto;padding:0 1.25rem}
+  header{border-bottom:1px solid var(--line);padding:4.5rem 0 3rem}
+  .kicker{font-size:.75rem;letter-spacing:.14em;text-transform:uppercase;
+          color:var(--accent);font-weight:650;margin:0 0 1rem}
+  h1{font-size:clamp(2rem,5.2vw,3.1rem);line-height:1.08;margin:0 0 1rem;
+     letter-spacing:-.022em;font-weight:700}
+  .lede{font-size:clamp(1.05rem,2.2vw,1.25rem);color:var(--dim);margin:0;max-width:40rem}
+  .cta{display:flex;gap:.7rem;flex-wrap:wrap;margin-top:2rem}
+  .btn{display:inline-block;padding:.6rem 1.1rem;border-radius:7px;text-decoration:none;
+       font-weight:600;font-size:.92rem;border:1px solid var(--line);color:var(--fg)}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  section{padding:3rem 0;border-bottom:1px solid var(--line)}
+  h2{font-size:1.5rem;margin:0 0 1rem;letter-spacing:-.014em}
+  h3{font-size:1.05rem;margin:2rem 0 .5rem}
+  p{margin:0 0 1rem}
+  .dim{color:var(--dim)}
+  pre{background:var(--code);border:1px solid var(--line);border-radius:8px;
+      padding:1rem;overflow-x:auto;font-size:.84rem;line-height:1.55;margin:1rem 0}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  p code,li code,td code{background:var(--code);padding:.12em .38em;border-radius:4px;font-size:.9em}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(15rem,1fr));gap:1rem;margin-top:1.5rem}
+  .card{border:1px solid var(--line);border-radius:10px;padding:1.1rem;background:var(--bg)}
+  .card h3{margin:0 0 .4rem;font-size:1rem}
+  .card p{margin:0;font-size:.9rem;color:var(--dim)}
+  .pull{border-left:3px solid var(--accent);background:var(--accent-soft);
+        padding:1rem 1.2rem;border-radius:0 8px 8px 0;margin:1.5rem 0;font-size:1.02rem}
+  .scroll{overflow-x:auto;margin:1rem 0}
+  table{border-collapse:collapse;width:100%;font-size:.9rem;min-width:30rem}
+  th,td{text-align:left;padding:.6rem .7rem;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-weight:650;font-size:.78rem;text-transform:uppercase;letter-spacing:.06em;color:var(--dim)}
+  .num{font-variant-numeric:tabular-nums;font-weight:650;color:var(--ok)}
+  ol,ul{margin:0 0 1rem;padding-left:1.3rem}
+  li{margin:.35rem 0}
+  footer{padding:2.5rem 0 4rem;color:var(--dim);font-size:.86rem}
+  footer a{color:var(--dim)}
+  a{color:var(--accent)}
+</style>
+</head>
+<body>
+
+<header><div class="wrap">
+  <p class="kicker">rapp-capability-interchange/1.0</p>
+  <h1>A skill that can prove it still means what it meant.</h1>
+  <p class="lede">Toasted Skills is an <strong>additive</strong> standard for <code>SKILL.md</code>.
+  It gives a skill a canonical record, a drift oracle, and single-file agent
+  portability — without changing one frontmatter field, and without migrating anything.</p>
+  <div class="cta">
+    <a class="btn primary" href="SPEC.md">Read the spec</a>
+    <a class="btn" href="https://github.com/kody-w/rapp-toaster">Implementation</a>
+    <a class="btn" href="https://github.com/kody-w/rapp-skills">Toasted skills registry</a>
+  </div>
+</div></header>
+
+<section><div class="wrap">
+  <h2>The question nothing can currently answer</h2>
+  <p>Skills became production infrastructure without acquiring the safety properties
+  production infrastructure has. A skill is prose; the systems it drives execute
+  against real credentials. Agents are increasingly permitted to rewrite them.</p>
+  <div class="pull"><strong>“Does this capability mean today exactly what it meant
+  when we approved it?”</strong><br>
+  <span class="dim">Today that has no answer. You cannot attest to a control you
+  cannot prove is unchanged.</span></div>
+  <p>Drift here never fails loudly. A drifted dependency crashes; a drifted skill
+  keeps working and does the wrong thing confidently. It is found by its
+  consequences, not by its errors.</p>
+</div></section>
+
+<section><div class="wrap">
+  <h2>Bread and toast</h2>
+  <p>A hand-written <code>SKILL.md</code> is <strong>raw bread</strong>: prose with no
+  canonical form. It cannot be tested for fidelity, because there is nothing to be
+  faithful to — comparing two renders and asking whether they agree is not a test.</p>
+  <p><strong>Toasting</strong> scans the prose, derives whatever deterministic layer is
+  actually evidenced there, and freezes it as a record the file carries with it.
+  Everything after that stake is measurable. Nothing before it is.</p>
+  <pre><code>toaster.py toast  my-skill/SKILL.md   # derive + anchor; idempotent
+toaster.py soak   my-skill/SKILL.md   # prove it does not drift</code></pre>
+  <p class="dim">Derivation is conservative by rule: a parameter counts only if it
+  appears inside a command the document actually gives. Inventing a contract the
+  author never implied is drift with extra steps.</p>
+</div></section>
+
+<section><div class="wrap">
+  <h2>Three properties a round trip cannot see</h2>
+  <p>Drift is an <em>accumulation</em> failure. Every hop looks plausible; twenty hops
+  later the capability means something else and no commit is to blame.</p>
+  <div class="cards">
+    <div class="card"><h3>Fixed point</h3><p>After one normalising pass, repeated
+      conversion must stop changing bytes.</p></div>
+    <div class="card"><h3>Path independence</h3><p>Every route must land on identical
+      bytes. If the route changes the destination, the format is lying about being
+      a projection.</p></div>
+    <div class="card"><h3>Idempotence</h3><p>Converting to a format twice in a row
+      is a no-op.</p></div>
+  </div>
+  <div class="pull">A projection must never be mistakable for the thing it projects from.</div>
+</div></section>
+
+<section><div class="wrap">
+  <h2>Measured in the field</h2>
+  <p>Against real corpora, not fixtures. Every number reproducible.</p>
+  <div class="scroll"><table>
+    <tr><th>Corpus</th><th>Conversions</th><th>Drift</th></tr>
+    <tr><td>50 skills, a major public registry</td><td class="num">3,600</td><td class="num">zero</td></tr>
+    <tr><td>22 skills, <code>kody-w/rapp-skills</code></td><td class="num">1,584</td><td class="num">zero</td></tr>
+    <tr><td>32 mixed real agents + skills</td><td class="num">6,138</td><td class="num">zero</td></tr>
+  </table></div>
+  <p>The oracle earned its place by catching a bug that <strong>every single round
+  trip had passed</strong>: a projection re-emitted a platform-specific metadata key,
+  so format detection reclassified it as the thing it was projecting from — and
+  overwrote the original with a derived copy. 26 chains failed. One round trip
+  never would have.</p>
+  <h3>Counter-evidence, reported because the spec requires it</h3>
+  <p><strong>9 of those 50 skills yielded nothing machine-recoverable.</strong>
+  Prose-heavy skills declare little that can be derived conservatively. That is a
+  finding about the corpus — most skills in circulation carry almost no
+  machine-recoverable contract — and it is the strongest argument for anchoring
+  them, not against it.</p>
+</div></section>
+
+<section><div class="wrap">
+  <h2>Nothing migrates</h2>
+  <p>The reflex when formats diverge is to converge them: pick a winner, write a
+  migration tool, deprecate the rest. Nobody is going to migrate five thousand
+  skills — and if they did, the next runtime would restart the problem.</p>
+  <p>A <strong>shim</strong> leaves every artifact exactly where it is, in exactly the
+  format its platform wants, and makes the canonical record travel inside it.
+  Formats stop being destinations you move between and become simultaneous
+  projections of one thing.</p>
+  <div class="pull">A migration tool would never need byte-exact round-tripping.
+  One-way conversions never come back. Fidelity has to hold in every direction,
+  over unlimited hops, <em>because</em> this is a shim.</div>
+  <ul>
+    <li>A toasted skill is a valid skill on every host that reads <code>SKILL.md</code>.</li>
+    <li>No frontmatter field is added, changed, or required — the capsule rides as
+      an HTML comment.</li>
+    <li>Hosts that ignore it lose nothing they had.</li>
+    <li><strong>A shim needs nobody's permission</strong>, so a registry can be
+      toasted today by a consumer of it, without the registry changing anything.</li>
+  </ul>
+</div></section>
+
+<section><div class="wrap">
+  <h2>What you get for free</h2>
+  <p>Because the canonical record travels inside the artifact, any toasted skill
+  also projects into a <strong>single self-contained file</strong> — stdlib only, no
+  install, no framework — that declares a standard tool contract and runs anywhere:</p>
+  <pre><code>python3 my_skill_agent.py --tool          # emit the JSON tool contract
+python3 my_skill_agent.py '{"arg":"…"}'  # run it, deterministically</code></pre>
+  <p>…and converts back to the original skill, byte for byte. The skill stays a
+  skill. It is simply <em>also</em> portable, runnable, and provable.</p>
+</div></section>
+
+<footer><div class="wrap">
+  <p><a href="SPEC.md">Specification</a> ·
+     <a href="https://github.com/kody-w/rapp-toaster">rapp-toaster</a> ·
+     <a href="https://github.com/kody-w/rapp-skills">rapp-skills</a> ·
+     Apache-2.0</p>
+  <p>Published for free use by anyone, including implementations with nothing to do
+  with RAPP. RAPP™ compound marks are claimed by Wildhaven Homes LLC; the
+  <code>RAPP</code> stem standing alone is deliberately unclaimed.</p>
+</div></footer>
+
+</body>
+</html>
