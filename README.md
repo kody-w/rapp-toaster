@@ -125,6 +125,26 @@ trip passed every time.
 
 > **A projection must never be mistakable for the thing it projects from.**
 
+### What round-trips, and what doesn't (stated plainly)
+
+**Canonical artifacts** — a hand-written `agent.py`, `SKILL.md`, or
+`skill.json` — round-trip **byte-exact** through any route, any number of hops.
+
+**A `--bundle` export does not round-trip to itself**, and it is not meant to.
+It is a derived, one-way projection: the markdown gains a "run this" section and
+the sidecar gains a standalone shim. What *is* guaranteed — and enforced in CI —
+is that **every route out of a bundled export converges on the byte-exact
+grail**:
+
+```
+bundled SKILL.md -> agent                                  == original agent.py
+bundled SKILL.md -> openrappter -> openclaw -> rci -> agent == original agent.py
+```
+
+That is the promise that matters. You can hand someone a bundled folder, they
+can push it through three foreign platforms, and what comes back out the far
+end is your `agent.py`, byte for byte.
+
 ## Commands
 
 ```

@@ -27,7 +27,11 @@ jobs:
       - name: drift soak — every example, every direction
         run: |
           shopt -s nullglob
-          targets=(examples/*/SKILL.md examples/*/*_agent.py)
+          # Canonical sources only. A BUNDLED SKILL.md is a derived one-way
+          # export -- it converges to the grail (asserted in the next step) but
+          # is not expected to round-trip to itself. Soaking an output would be
+          # testing the wrong invariant.
+          targets=(examples/*/*_agent.py)
           if [ ${#targets[@]} -eq 0 ]; then
             echo "::error::no example capabilities found — the soak would pass vacuously"
             exit 1
@@ -46,3 +50,33 @@ jobs:
           done
           [ "$n" -gt 0 ] || { echo "::error::no bundled agents to exercise"; exit 1; }
           echo "$n bundled agent(s) execute standalone"
+
+      - name: bundled exports must converge to the byte-exact grail
+        run: |
+          python3 - <<'PY'
+          import sys, glob, os
+          sys.path.insert(0, '.')
+          import toaster as T
+          fails = 0
+          for skill in glob.glob('examples/*/SKILL.md'):
+              d = os.path.dirname(skill)
+              grail = [f for f in glob.glob(f'{d}/*_agent.py')]
+              if not grail:
+                  print(f'::error::{skill} has no bundled agent'); fails += 1; continue
+              want = T.render(T.load(skill), 'agent')
+              # every route out of the export must land on the same grail bytes
+              import tempfile
+              with tempfile.TemporaryDirectory() as td:
+                  for route in (['openrappter'], ['openclaw'], ['rci'],
+                                ['openrappter', 'openclaw', 'rci']):
+                      cur, curf = skill, 'skill'
+                      for i, nxt in enumerate(route):
+                          cur = T._hop(cur, curf, nxt, td, f'r{i}{nxt}'); curf = nxt
+                      got = T.render(T.load(cur, curf), 'agent')
+                      tag = 'skill->' + '->'.join(route) + '->agent'
+                      if got != want:
+                          print(f'::error::{tag} did not converge to the grail'); fails += 1
+                      else:
+                          print(f'  ok  {tag}')
+          sys.exit(1 if fails else 0)
+          PY
