@@ -103,7 +103,43 @@ nothing canonical to restore from — every conversion has to *synthesise*, and
 synthesis is a re-render, not a recovery. Feed raw bread straight into the loop
 and you are measuring whether two renders agree, not whether fidelity held.
 
-**Toasting** is the one-time normalising pass that lets bread enter the loop:
+**Toasting is a chemical change, not a wrapper.** It *scans and evaluates* the
+prose and **interprets a deterministic layer out of it** — the same
+instructions, now machine-addressable:
+
+```
+$ toaster.py toast some/SKILL.md
+  toasted  some/SKILL.md
+     typed params  0 -> 4   (+4 derived)
+     steps lifted  9
+       repo    <- <repo>   (line 26, angle)
+       url     <- <url>    (line 37, angle)
+```
+
+Bread is prose a human reads and improvises from. Toast has a **typed JSON
+Schema contract** and an **ordered, resolved step list**. The reaction is
+evidence-based and conservative: a parameter counts only if it appears inside
+an actual documented command, and every step is lifted verbatim. Nothing is
+invented — a contract the author never implied is worse than none, because it
+silently changes what the capability claims to accept. Every derivation cites
+its source token and line, so toast is auditable.
+
+The toasted agent then *computes*:
+
+```
+$ python3 ship_agent.py '{"repo":"my-demo","url":"https://…","marker":"BUILD-OK"}'
+{"status":"ok",
+ "steps":["gh api repos/kody-w/my-demo/pages", "curl -sL https://… | grep -c \"BUILD-OK\"", …],
+ "unresolved_placeholders":[]}
+```
+
+Same arguments in, byte-identical output out, no model in the loop. It
+**resolves and returns** — it deliberately does not execute, because a
+capability that shells out on import is one nobody can safely audit. Under-
+specified calls report exactly which placeholders are unresolved rather than
+guessing.
+
+The normalising pass that lets bread enter the loop:
 
 ```bash
 toaster.py toast some/SKILL.md      # embeds the capsule; idempotent

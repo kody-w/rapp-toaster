@@ -433,9 +433,41 @@ def read_openrappter(path: str) -> dict:
 # WRITER: RAPP brainstem agent.py
 # --------------------------------------------------------------------------
 
+# Emitted when toasting derived an ordered step list out of the prose. This is
+# the deterministic layer: same arguments in, same resolved commands out, no
+# model in the loop. It RESOLVES and RETURNS the steps -- it deliberately does
+# not execute them, because a capability that shells out on import is a
+# capability nobody can safely audit.
+STEP_PERFORM = '''    def perform(self, **kwargs):
+        missing = [k for k in self.metadata["parameters"].get("required", [])
+                   if k not in kwargs]
+        if missing:
+            return json.dumps({"status": "error",
+                               "missing_required": missing}, indent=2)
+        resolved, unresolved = [], set()
+        for step in STEPS:
+            cmd = step["cmd"]
+            for key, value in kwargs.items():
+                for token in ("<" + key.replace("_", "-") + ">",
+                              "<" + key + ">",
+                              "{{" + key + "}}",
+                              "$" + key.upper()):
+                    cmd = cmd.replace(token, str(value))
+            for leftover in re.findall(r"<[a-zA-Z][a-zA-Z0-9 _.-]{1,40}>", cmd):
+                unresolved.add(leftover)
+            resolved.append(cmd)
+        return json.dumps({"status": "ok",
+                           "steps": resolved,
+                           "unresolved_placeholders": sorted(unresolved),
+                           "note": "Resolved deterministically by the agent; "
+                                   "run in order. Nothing was executed here."},
+                          indent=2)
+'''
+
 AGENT_TEMPLATE = '''"""{docstring}"""
 
 import json
+import re
 import sys
 
 try:
@@ -464,6 +496,9 @@ except ImportError:  # running OUTSIDE the brainstem -- stay executable anyway.
 # returns this to the model, so the skill's instructions still drive behaviour
 # -- now behind a typed, deterministic tool contract.
 INSTRUCTIONS = {instructions!r}
+
+# Ordered commands lifted verbatim from the capability's own documentation.
+STEPS = {steps}
 
 
 class {cls}(BasicAgent):
@@ -514,7 +549,9 @@ def write_agent(rci: dict) -> bytes:
         return exact  # byte-for-byte original -- zero loss, not a re-render
 
     impl = rci.get("impl") or {}
-    if impl.get("perform"):
+    if impl.get("steps") and not impl.get("perform") and not impl.get("perform_body"):
+        perform = STEP_PERFORM.rstrip("\n")
+    elif impl.get("perform"):
         perform = impl["perform"]
         if not perform.startswith("    "):
             perform = textwrap.indent(perform, "    ")
@@ -546,6 +583,7 @@ def write_agent(rci: dict) -> bytes:
     src = AGENT_TEMPLATE.format(
         docstring=doc,
         instructions=rci.get("instructions", ""),
+        steps=json.dumps((rci.get("impl") or {}).get("steps") or [], indent=4),
         cls=cls,
         name=rci["name"],
         metadata=json.dumps(metadata, indent=8).replace("\n}", "\n        }"),
@@ -650,7 +688,7 @@ TIER_CONTRACT = "SPEC"  # typed contract + examples only; model conforms, not co
 
 def fidelity_tier(rci: dict, bundled: bool) -> tuple:
     impl = rci.get("impl") or {}
-    has_code = bool(impl.get("perform") or impl.get("perform_body"))
+    has_code = bool(impl.get("perform") or impl.get("perform_body") or impl.get("steps"))
     has_schema = bool((rci.get("parameters") or {}).get("properties"))
     if has_code and bundled:
         return (TIER_EXEC,
@@ -716,6 +754,12 @@ def write_skill(rci: dict, openclaw: bool = False, bundled: bool = False) -> byt
                     "answers to (JSON Schema — the deterministic layer):\n\n"
                     "```json\n", json.dumps(params, indent=2), "\n```\n"]
     impl = rci.get("impl") or {}
+    if impl.get("steps") and "## Deterministic steps" not in body:
+        out += ["\n## Deterministic steps\n\nLifted verbatim from the procedure above "
+                "by `toaster.py toast`. Run them in order, substituting the typed "
+                "parameters; do not paraphrase:\n\n```bash\n"]
+        out += [f"{s_['cmd']}\n" for s_ in impl["steps"]]
+        out += ["```\n"]
     code = impl.get("perform") or impl.get("perform_body")
 
     # The export answer: on a host with NO RAPP and no framework, determinism
@@ -905,8 +949,10 @@ def cmd_convert(a) -> int:
     if not exact:
         if not (rci.get("parameters") or {}).get("properties"):
             print("  note: no typed parameters — add a `## Parameters` json fence")
-        if a.to == "agent" and not (rci.get("impl") or {}).get("perform"):
-            print("  note: no deterministic code — perform() renders instructions")
+        _i = rci.get("impl") or {}
+        if a.to == "agent" and not (_i.get("perform") or _i.get("steps")):
+            print("  note: no deterministic code — perform() renders instructions."
+                  " Run `toast` first to derive one from the prose.")
     return 0
 
 
@@ -1185,6 +1231,108 @@ def _compiles(src: str) -> bool:
 
 
 # --------------------------------------------------------------------------
+# The reaction: deriving a deterministic layer out of prose
+# --------------------------------------------------------------------------
+#
+# Toasting is a CHEMICAL CHANGE, not a wrapper. Raw bread is prose: a human
+# reads it and improvises. Toast has a typed contract and an ordered, resolved
+# step list -- the same instructions, now machine-addressable.
+#
+# The reaction is deliberately EVIDENCE-BASED and conservative. Every derived
+# parameter must appear inside an actual command, and every derived step must
+# be a real command line lifted verbatim from the document. Nothing is
+# invented, because a contract the author never implied is worse than no
+# contract: it silently changes what the capability claims to accept.
+# Each derivation records where it came from, so toast is auditable.
+
+CMD_HEADS = ("git","gh","curl","wget","python","python3","pip","npm","npx","node",
+             "bash","sh","zsh","make","docker","kubectl","az","aws","open","cd",
+             "mkdir","cp","mv","grep","sed","awk","jq","pytest","cargo","go")
+
+INLINE_CODE = re.compile(r"`([^`\n]{2,400})`")
+FENCED = re.compile(r"```[a-zA-Z0-9_+-]*[ \t]*\n(.*?)```", re.S)
+PLACEHOLDER_PATTERNS = [
+    (re.compile(r"<([a-zA-Z][a-zA-Z0-9 _.-]{1,40})>"), "angle"),
+    (re.compile(r"\{\{\s*([a-zA-Z_][a-zA-Z0-9_]{0,40})\s*\}\}"), "mustache"),
+    (re.compile(r"\$\{?([A-Z][A-Z0-9_]{2,40})\}?"), "envvar"),
+]
+
+
+def _is_command(line: str) -> bool:
+    t = line.strip().lstrip("$ ").split()
+    return bool(t) and t[0] in CMD_HEADS
+
+
+def derive_layer(instructions: str) -> dict:
+    """Scan prose -> (typed params, ordered steps, provenance). Pure function."""
+    spans, steps = [], []
+    for m in INLINE_CODE.finditer(instructions):
+        spans.append((m.group(1), instructions[:m.start()].count("\n") + 1))
+    for m in FENCED.finditer(instructions):
+        base = instructions[:m.start()].count("\n") + 1
+        for i, ln in enumerate(m.group(1).split("\n")):
+            if ln.strip():
+                spans.append((ln, base + i + 1))
+
+    for text, line in spans:
+        if _is_command(text):
+            steps.append({"cmd": text.strip(), "line": line})
+
+    # A parameter counts only if it appears inside a command span -- a
+    # placeholder mentioned in a sentence is documentation, not an input.
+    props, prov = {}, []
+    cmd_text = "\n".join(s["cmd"] for s in steps)
+    for text, line in spans:
+        for rx, kind in PLACEHOLDER_PATTERNS:
+            for m in rx.finditer(text):
+                raw = m.group(1).strip()
+                name = _kebab(raw).replace("-", "_")
+                if not name or name in props:
+                    continue
+                if raw not in cmd_text and text not in cmd_text:
+                    continue
+                props[name] = {
+                    "type": "string",
+                    "description": f"Derived from `{m.group(0)}` used in the "
+                                   f"documented command at line {line}.",
+                }
+                prov.append({"param": name, "token": m.group(0),
+                             "kind": kind, "line": line})
+    return {"properties": props, "steps": steps, "provenance": prov}
+
+
+def toast_rci(rci: dict) -> dict:
+    """Apply the reaction to a capability record, in place. Returns a report."""
+    body = rci.get("instructions", "") or ""
+    d = derive_layer(body)
+    params = rci.get("parameters") or {"type": "object", "properties": {}, "required": []}
+    before = len(params.get("properties", {}))
+
+    # An explicit `## Parameters` fence is the author speaking; never override
+    # it. Derived params only FILL GAPS.
+    props = dict(params.get("properties", {}))
+    for k, v in d["properties"].items():
+        props.setdefault(k, v)
+    params["type"] = "object"
+    params["properties"] = props
+    params.setdefault("required", [])
+    rci["parameters"] = params
+
+    impl = rci.get("impl") or {}
+    if d["steps"] and not impl.get("perform") and not impl.get("perform_body"):
+        impl = dict(impl)
+        impl["lang"] = impl.get("lang") or "python"
+        impl["steps"] = d["steps"]
+        rci["impl"] = impl
+
+    rci.setdefault("provenance", []).append(
+        f"toast:derived params={len(props) - before} steps={len(d['steps'])}")
+    rci["derivation"] = d["provenance"]
+    return {"params_before": before, "params_after": len(props),
+            "steps": len(d["steps"]), "provenance": d["provenance"]}
+
+
+# --------------------------------------------------------------------------
 # toast -- raw bread must be toasted before it enters the loop
 # --------------------------------------------------------------------------
 #
@@ -1236,8 +1384,8 @@ def cmd_toast(a) -> int:
         # form for this format; the raw original is superseded, not lost
         # (every other format's preserved entry survives in the capsule).
         rci.setdefault("preserved", {}).pop(fmt, None)
-        rci.setdefault("provenance", []).append(f"toast:{fmt}")
-        out = render(rci, fmt)                       # now carries a capsule
+        report = toast_rci(rci)          # <-- the reaction: prose -> contract
+        out = render(rci, fmt)           # now carries a capsule AND a layer
         target = path if fmt != "openrappter" else path
         emit(out, target)
         # prove it: the freshly toasted artifact must round-trip byte-exact
@@ -1245,9 +1393,17 @@ def cmd_toast(a) -> int:
         again = again["skill.json"] if isinstance(again, dict) else again
         cur = _bytes_of(target, fmt)
         ok = (again == cur)
-        params = len((rci.get("parameters") or {}).get("properties", {}))
-        print(f"  {'toasted' if ok else 'TOASTED-BUT-UNSTABLE'}  {path}"
-              f"   [capsule embedded, {params} typed param(s)]")
+        b, aft, st = report["params_before"], report["params_after"], report["steps"]
+        print(f"  {'toasted' if ok else 'TOASTED-BUT-UNSTABLE'}  {path}")
+        print(f"     typed params  {b} -> {aft}"
+              + (f"   (+{aft - b} derived)" if aft > b else "   (nothing derivable)"))
+        print(f"     steps lifted  {st}")
+        for d in report["provenance"][:6]:
+            print(f"       {d['param']:<22} <- {d['token']} (line {d['line']}, {d['kind']})")
+        if aft == b and st == 0:
+            print("     NOTE: no deterministic layer was recoverable from this prose."
+                  "\n           It is toast (loop-safe) but still SPEC tier -- add a"
+                  "\n           `## Parameters` json fence or documented commands to raise it.")
         if not ok:
             print("     round trip did not stabilise -- do not feed this to the loop")
             rc = 1
