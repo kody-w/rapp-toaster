@@ -1,0 +1,48 @@
+name: no-drift
+
+# Closing the loop: drift is an ACCUMULATION failure, so it cannot be caught by
+# eyeballing a diff. Every push re-proves the three properties a single round
+# trip cannot see -- fixed point, path independence, idempotence -- against the
+# repo's own examples. If a change makes conversion lossy, this goes red here,
+# not silently in someone's agent six months later.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  soak:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'   # floor we claim support for; stdlib only, no install
+
+      - name: selftest
+        run: python3 toaster.py selftest
+
+      - name: drift soak — every example, every direction
+        run: |
+          shopt -s nullglob
+          targets=(examples/*/SKILL.md examples/*/*_agent.py)
+          if [ ${#targets[@]} -eq 0 ]; then
+            echo "::error::no example capabilities found — the soak would pass vacuously"
+            exit 1
+          fi
+          echo "soaking ${#targets[@]} artifact(s)"
+          python3 toaster.py soak "${targets[@]}" --depth 3 --cycles 25
+
+      - name: bundled agents must actually execute
+        run: |
+          shopt -s nullglob
+          n=0
+          for a in examples/*/*_agent.py; do
+            echo "--- $a"
+            python3 "$a" --tool > /dev/null || { echo "::error::$a is not standalone-runnable"; exit 1; }
+            n=$((n+1))
+          done
+          [ "$n" -gt 0 ] || { echo "::error::no bundled agents to exercise"; exit 1; }
+          echo "$n bundled agent(s) execute standalone"
