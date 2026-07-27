@@ -607,12 +607,48 @@ DEFAULT_PERFORM = '''    def perform(self, **kwargs):  # toaster:generated-perfo
 '''
 
 
+def strip_capsule(text: str) -> str:
+    """Remove an embedded capsule AND the comment line that carried it.
+
+    `CAPSULE_RE.sub("", ...)` alone leaves a bare `# ` behind, so anything
+    comparing "the code without its capsule" must use this instead.
+    """
+    return re.sub(r"\n#[ \t]*(?=\n|\Z)", "", CAPSULE_RE.sub("", text))
+
+
+def _agent_with_capsule(src: str, rci: dict) -> bytes:
+    """Re-emit real agent source with a refreshed capsule, code untouched.
+
+    The capsule is stripped from the body before it is packed, so a capsule
+    can never end up nested inside the source it describes -- otherwise every
+    toast would embed the previous one and the file would grow without bound.
+    """
+    body = strip_capsule(src).rstrip("\n") + "\n"
+    rec = dict(rci)
+    rec["impl"] = dict(rci.get("impl") or {}, source=body)
+    return (body + "\n# " + pack_capsule(rec) + "\n").encode()
+
+
+
 def write_agent(rci: dict) -> bytes:
     exact = restore(rci, "agent")
     if exact is not None:
         return exact  # byte-for-byte original -- zero loss, not a re-render
 
     impl = rci.get("impl") or {}
+
+    # The byte-exact vault is gone -- `toast` drops it on purpose so the file
+    # it is toasting can actually be rewritten. But an agent's real substance
+    # (imports, module constants, helper functions, everything outside the
+    # class) lives ONLY in its source; the RCI fields cannot describe it. So
+    # synthesising from the template here does not re-render the capability,
+    # it REPLACES working code with a stub that usually will not even import.
+    # That turned `toast some_agent.py` into a silent, in-place data loss.
+    # The source is still in the record -- re-embed the capsule into it.
+    src = impl.get("source")
+    if isinstance(src, str) and src.strip():
+        return _agent_with_capsule(src, rci)
+
     if impl.get("steps") and not impl.get("perform") and not impl.get("perform_body"):
         perform = STEP_PERFORM.rstrip("\n")
     elif impl.get("perform"):
@@ -1209,6 +1245,41 @@ def cmd_soak(a) -> int:
     return 0
 
 
+FIXTURE_FAT_AGENT = '''"""Fat agent -- the parts a template cannot reconstruct.
+
+Everything below the docstring except the class body is invisible to the RCI
+record. If `toast` re-renders from the template instead of keeping the source,
+all of it disappears and the file stops importing.
+"""
+
+import json
+import subprocess
+
+from agents.basic_agent import BasicAgent
+
+MODULE_CONSTANT = "load-bearing"
+
+
+def _helper_fn(value):
+    """Module-level helper the class depends on."""
+    return {"echo": value, "have_subprocess": bool(subprocess)}
+
+
+class FatAgent(BasicAgent):
+    def __init__(self):
+        self.name = 'Fat'
+        self.metadata = {
+            "name": self.name,
+            "description": "Exercises code the template cannot see.",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        }
+        super().__init__(name=self.name, metadata=self.metadata)
+
+    def perform(self, **kwargs):
+        return json.dumps(_helper_fn(MODULE_CONSTANT))
+'''
+
+
 FIXTURE_AGENT = '''"""Weather lookup, deterministic."""
 
 from agents.basic_agent import BasicAgent
@@ -1286,6 +1357,43 @@ def cmd_selftest(a) -> int:
         checks.append(("synthesis: valid python", _compiles(agent_src)))
         checks.append(("synthesis: typed contract survived", '"tag"' in agent_src))
         checks.append(("synthesis: instructions carried", "Group commits" in agent_src))
+
+        # 4. toasting an agent must never eat its code.
+        # `toast` drops the byte-exact vault so the file can be rewritten, and
+        # write_agent used to fall through to the template -- which knows only
+        # the RCI fields. Everything outside the class (imports, module
+        # constants, helper functions) was silently deleted IN PLACE, leaving a
+        # stub that did not import. Guard every layer the template cannot see.
+        tp = os.path.join(td, "toast_me_agent.py")
+        open(tp, "w").write(FIXTURE_FAT_AGENT)
+        before = open(tp).read()
+
+        class _A:
+            paths, force = [tp], False
+        import io
+        import contextlib
+        with contextlib.redirect_stdout(io.StringIO()):
+            cmd_toast(_A())
+        after = open(tp).read()
+
+        checks += [
+            ("toast agent: still valid python", _compiles(after)),
+            ("toast agent: imports survive", "import subprocess" in after),
+            ("toast agent: module constant survives", "MODULE_CONSTANT" in after),
+            ("toast agent: helper function survives", "def _helper_fn" in after),
+            ("toast agent: perform body survives", "_helper_fn(MODULE_CONSTANT)" in after),
+            ("toast agent: gained a capsule", CAPSULE_RE.search(after) is not None),
+            ("toast agent: code byte-identical",
+             strip_capsule(after).strip() == before.strip()),
+        ]
+        # and toasting toast stays a fixed point rather than growing
+        with contextlib.redirect_stdout(io.StringIO()):
+            cmd_toast(_A())
+            once = open(tp).read()
+            cmd_toast(_A())
+        checks.append(("toast agent: idempotent at fixed point", open(tp).read() == once))
+        checks.append(("toast agent: exactly one capsule",
+                       len(CAPSULE_RE.findall(open(tp).read())) == 1))
 
         for label, ok in checks:
             print(f"  {'PASS' if ok else 'FAIL'}  {label}")
