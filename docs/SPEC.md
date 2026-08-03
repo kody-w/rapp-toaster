@@ -150,6 +150,13 @@ took a different route). **Neither is the capability.**
 instructions, system_context, author, tags, license, examples, impl}`, where
 `impl` uses `steps` when present and otherwise authored code only.
 
+Authored code **MUST** be canonicalised to a single form before hashing. A skill
+vaults a code block as `perform_body`; the agent projection of that same block
+wraps it in a `def perform(...)` header and stores it as `perform`. These are one
+article in two encodings, and hashing them as distinct fields makes identity
+depend on which projection is in hand — the precise failure this section exists
+to forbid.
+
 Generated content **MUST** be excluded from identity. Conflating artifact
 identity with capability identity makes a true statement ("the capability is
 intact") report as a false one.

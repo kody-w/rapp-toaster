@@ -141,6 +141,30 @@ CAPABILITY_FIELDS = ("name", "slug", "version", "description", "parameters",
                      "license", "examples")
 
 
+def _authored_code(impl: dict) -> str | None:
+    """Reduce either encoding of authored code to one canonical body.
+
+    A skill vaults an authored code block as `perform_body`; projecting it into
+    an agent wraps that same block in a `def perform(...)` header and stores it
+    as `perform`. One article, two encodings -- so hashing the fields as-is made
+    a capability's identity depend on which projection happened to be in hand,
+    which is exactly what §7 says identity must not do.
+
+    Synthesised boilerplate is not the author's article and yields None, so a
+    capability with no deterministic layer cannot acquire one by being looked at.
+    """
+    body = impl.get("perform_body")
+    if not body:
+        perform = impl.get("perform")
+        if not perform or GENERATED_PERFORM_MARK in perform:
+            return None
+        lines = textwrap.dedent(perform).splitlines()
+        if lines and re.match(r"def\s+perform\s*\(", lines[0].strip()):
+            lines = lines[1:]
+        body = "\n".join(lines)
+    return textwrap.dedent(body).strip() or None
+
+
 def capability_id(rci: dict) -> str:
     """Stable hash of what the capability IS, ignoring how it got here."""
     impl = rci.get("impl") or {}
@@ -148,19 +172,12 @@ def capability_id(rci: dict) -> str:
     # When a step list exists it IS the deterministic layer, and perform() is
     # merely its rendering into Python -- so including both would make one
     # capability hash differently depending on which projection you are looking
-    # at. Steps win; perform only counts when it is the authored article.
+    # at. Steps win; authored code counts only when it is the article itself,
+    # and is canonicalised so its encoding cannot move the identity.
     if impl.get("steps"):
         core["impl"] = {"steps": impl["steps"]}
     else:
-        perform = impl.get("perform")
-        # A synthesised perform() is boilerplate this tool wrote, not something
-        # the author supplied. Counting it would mean a capability with NO
-        # deterministic layer acquires one merely by being projected into an
-        # agent -- identity changing as a side effect of looking at it.
-        if perform and GENERATED_PERFORM_MARK in perform:
-            perform = None
-        core["impl"] = {"perform": perform,
-                        "perform_body": impl.get("perform_body")}
+        core["impl"] = {"code": _authored_code(impl)}
     return hashlib.sha256(
         json.dumps(core, sort_keys=True, default=str).encode()).hexdigest()
 
