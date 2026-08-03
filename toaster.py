@@ -607,6 +607,49 @@ DEFAULT_PERFORM = '''    def perform(self, **kwargs):  # toaster:generated-perfo
 '''
 
 
+def _py_literal(obj, indent: int) -> str:
+    """`json.dumps` layout, but emitting valid Python literals.
+
+    This value is interpolated into Python SOURCE, where JSON's `true`, `false`
+    and `null` are NameErrors -- a skill whose `## Parameters` fence carries a
+    boolean default used to emit an agent that died at construction. Rewriting
+    the tokens textually is only safe if string contents are skipped, so the
+    scanner tracks quoting; everything else renders byte-for-byte as before.
+    """
+    text = json.dumps(obj, indent=indent)
+    swaps = {"true": "True", "false": "False", "null": "None"}
+    out: list[str] = []
+    i, n, in_string = 0, len(text), False
+    while i < n:
+        ch = text[i]
+        if in_string:
+            out.append(ch)
+            if ch == "\\" and i + 1 < n:
+                out.append(text[i + 1])
+                i += 2
+                continue
+            if ch == '"':
+                in_string = False
+            i += 1
+            continue
+        if ch == '"':
+            in_string = True
+            out.append(ch)
+            i += 1
+            continue
+        for token, replacement in swaps.items():
+            if text.startswith(token, i):
+                after = text[i + len(token):i + len(token) + 1]
+                if not (after.isalnum() or after == "_"):
+                    out.append(replacement)
+                    i += len(token)
+                    break
+        else:
+            out.append(ch)
+            i += 1
+    return "".join(out)
+
+
 def write_agent(rci: dict) -> bytes:
     exact = restore(rci, "agent")
     if exact is not None:
@@ -647,10 +690,10 @@ def write_agent(rci: dict) -> bytes:
     src = AGENT_TEMPLATE.format(
         docstring=doc,
         instructions=rci.get("instructions", ""),
-        steps=json.dumps((rci.get("impl") or {}).get("steps") or [], indent=4),
+        steps=_py_literal((rci.get("impl") or {}).get("steps") or [], 4),
         cls=cls,
         name=rci["name"],
-        metadata=json.dumps(metadata, indent=8).replace("\n}", "\n        }"),
+        metadata=_py_literal(metadata, 8).replace("\n}", "\n        }"),
         sysctx=sysctx,
         perform=perform,
         filename=agent_filename(rci),
