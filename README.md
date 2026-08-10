@@ -1,295 +1,97 @@
-# rapp-toaster
+# RAPP Agent Converter
 
-**Bread goes in. Toast comes out. Same toast, every platform.**
+**One conversion boundary: RAPP `agent.py` ↔ Agent Skill. No re-rendering.**
 
-One stdlib-only Python file that converts an AI capability between
-`agent.py`, `SKILL.md`, openclaw, and openrappter — **without losing
-fidelity in either direction**, no matter how many times you convert.
+This repository is the standalone home of the
+[`rapp-agent-converter`](SKILL.md) skill published to the CAT Agent Skills
+gallery. The skill, its converter, its references, and its sample cartridge are
+the product:
 
-```bash
-python3 toaster.py convert my_agent.py --to skill --bundle
-python3 toaster.py convert some/SKILL.md --to agent
-python3 toaster.py soak my_agent.py          # prove it doesn't drift
+```text
+SKILL.md
+scripts/toast.py
+references/
+assets/hello_rapp_agent.py
 ```
 
-No install. No dependencies. No framework. Python 3.9+.
+The converter projects a RAPP single-file agent into an Agent Skill **pair**:
 
----
+```text
+out/
+├── SKILL.md              complete Python inline + checksum-verified capsule
+└── hello_rapp_agent.py   byte-exact linked copy of the source agent
+```
 
-## The problem: `.md` drift disease
+Copilot Studio and Cowork can run the linked file directly. An
+instruction-driven host can use the same `SKILL.md` as the exact specification.
+If the linked file is missing, the original agent restores byte-exact from the
+capsule. The artifact does not change as it moves between hosts.
 
-Agent capabilities are trapped in whatever format birthed them. Convert an
-`agent.py` to a `SKILL.md` and you lose the typed tool contract and the code.
-Convert it back and you get prose wearing a Python costume. Do it a few more
-times and the capability has quietly rotted — every individual hop looked
-fine, and the tool contract is gone.
+## Use it
 
-The failure is **accumulation**, so a single clean round trip proves nothing.
+Python 3.9+, standard library only. No install, network, credentials, or agent
+execution is required to convert a file.
 
-## The Toaster pattern
+```bash
+python3 scripts/toast.py convert my_agent.py --to skill -o out/SKILL.md
+python3 scripts/toast.py convert out/SKILL.md --to agent
+python3 scripts/toast.py roundtrip my_agent.py
+python3 scripts/toast.py inspect out/SKILL.md
+python3 scripts/toast.py selftest
+```
 
-A capability has two layers, and every format shows only some of them:
+`toast.py` at the repository root is a convenience launcher. The historical
+`toaster.py` entry point remains as a launcher too, but contains no conversion
+logic. All behavior lives in `scripts/toast.py`.
 
-| Layer | What it is | `agent.py` | `SKILL.md` |
-|---|---|---|---|
-| **Deterministic** | typed JSON-Schema contract + real code | ✅ | ❌ |
-| **Procedural** | markdown instructions a model follows | hidden in a docstring | ✅ |
+## Guarantees
 
-So conversion is not translation — it is **projection**. Each format is a
-shadow of the same object, cast at a different angle.
+- `agent.py → SKILL.md → agent.py` returns the exact original bytes.
+- Repeated projections reach and hold a fixed point.
+- The `SKILL.md` embeds the complete Python and links a byte-exact agent beside
+  it.
+- Capsule checksum failures and edits inside generated Python fences stop with
+  an explicit refusal.
+- Agent files are parsed with `ast`; conversion never imports or executes them.
+- Restoration is reported as **RESTORED (byte-exact)**. A first projection is
+  reported as **SYNTHESISED**. They are never conflated.
 
-The pattern has one rule:
+Run the proof:
 
-> **`agent.py` is the grail.** Every other format is a projection that
-> carries the canonical form *inside itself*.
+```bash
+python3 scripts/toast.py selftest
+python3 scripts/toast.py roundtrip assets/hello_rapp_agent.py
+python3 scripts/toast.py roundtrip examples/hacker-news/hacker_news_agent.py
+```
 
-Every artifact the toaster emits embeds an **RCI capsule** — gzip+base64 of
-the full canonical record, including the byte-exact original source. In a
-`SKILL.md` it rides as an HTML comment. In a `skill.json` it rides as
-`x-rci`. In an `agent.py` it rides as a trailing comment. Invisible to the
-host, lossless on the way back.
+## The 2.0 reset
 
-A `SKILL.md` you hand-wrote has no capsule. That is fine — the toaster
-synthesises, and tells you plainly that it did.
+Earlier versions of this repository implemented a broader format laboratory
+with `openclaw`, `openrappter`, `rci`, `toast`, and `soak` commands. That was a
+different product and a second source of truth.
 
-## Two fidelities (conflating them is how capabilities rot)
+The repository now follows the submitted Agent Skill exclusively:
 
-**Transport fidelity** — can the original be recovered byte-exact later?
-Solved unconditionally by the capsule. Always `LOSSLESS`.
+- supported shapes are `agent.py` and the `SKILL.md` + linked-agent pair;
+- the byte-exact agent is canonical;
+- `roundtrip` is the public fidelity oracle;
+- the bundled skill is the implementation, not documentation about an
+  implementation elsewhere.
 
-**Behavioural fidelity** — does it still behave deterministically *on the
-host*? That depends entirely on what the host can execute, so the toaster
-grades it honestly instead of pretending every export is equal:
+This is intentionally a smaller API with a stronger, directly testable
+contract.
 
-| Tier | Meaning |
+## Layout
+
+| Path | Role |
 |---|---|
-| `EXEC` | The host runs the real agent file. Byte-identical behaviour, no RAPP needed. |
-| `CODE` | The code travels in a fenced block; determinism only if the host runs it. |
-| `SPEC` | Typed contract + examples travel. The model conforms to the interface but computes the answer itself. |
+| `SKILL.md` | Agent-facing operating procedure. |
+| `scripts/toast.py` | Authoritative converter. |
+| `toast.py` / `toaster.py` | Thin launchers; no conversion logic. |
+| `references/rapp-agent-contract.md` | Single-file agent contract. |
+| `references/rapp1-protocol.md` | Live brainstem `/chat` wire. |
+| `assets/hello_rapp_agent.py` | Minimal executable cartridge. |
+| `examples/hacker-news/` | A second real agent/skill pair. |
 
-### Getting `EXEC` on a plain SKILL.md platform
-
-This is the whole trick. `--bundle` ships the runnable agent *next to* the
-markdown and rewrites the markdown to **command a call instead of describing
-a procedure**:
-
-```bash
-python3 toaster.py convert hacker_news_agent.py --to skill --bundle
-```
-
-```
-hacker-news/
-  SKILL.md                 # "## Run this — do not improvise"
-  hacker_news_agent.py     # stdlib-only, executable, zero install
-```
-
-The emitted agent carries a fallback shim, so it runs with **or** without a
-brainstem:
-
-```bash
-python3 hacker_news_agent.py '{"count": 3}'   # arguments as one JSON object
-echo '{"count": 3}' | python3 hacker_news_agent.py
-python3 hacker_news_agent.py --tool           # emit the JSON tool contract
-```
-
-Determinism survives because the *same bytes execute*. The host model never
-paraphrases the procedure — it shells out. The toaster refuses to claim
-`EXEC` without actually running the bundled file first.
-
-## Raw bread must be toasted first
-
-A hand-written `SKILL.md` is **raw bread**. It carries no capsule, so there is
-nothing canonical to restore from — every conversion has to *synthesise*, and
-synthesis is a re-render, not a recovery. Feed raw bread straight into the loop
-and you are measuring whether two renders agree, not whether fidelity held.
-
-**Toasting is a chemical change, not a wrapper.** It *scans and evaluates* the
-prose and **interprets a deterministic layer out of it** — the same
-instructions, now machine-addressable:
-
-```
-$ toaster.py toast some/SKILL.md
-  toasted  some/SKILL.md
-     typed params  0 -> 4   (+4 derived)
-     steps lifted  9
-       repo    <- <repo>   (line 26, angle)
-       url     <- <url>    (line 37, angle)
-```
-
-Bread is prose a human reads and improvises from. Toast has a **typed JSON
-Schema contract** and an **ordered, resolved step list**. The reaction is
-evidence-based and conservative: a parameter counts only if it appears inside
-an actual documented command, and every step is lifted verbatim. Nothing is
-invented — a contract the author never implied is worse than none, because it
-silently changes what the capability claims to accept. Every derivation cites
-its source token and line, so toast is auditable.
-
-The toasted agent then *computes*:
-
-```
-$ python3 ship_agent.py '{"repo":"my-demo","url":"https://…","marker":"BUILD-OK"}'
-{"status":"ok",
- "steps":["gh api repos/kody-w/my-demo/pages", "curl -sL https://… | grep -c \"BUILD-OK\"", …],
- "unresolved_placeholders":[]}
-```
-
-Same arguments in, byte-identical output out, no model in the loop. It
-**resolves and returns** — it deliberately does not execute, because a
-capability that shells out on import is one nobody can safely audit. Under-
-specified calls report exactly which placeholders are unresolved rather than
-guessing.
-
-The normalising pass that lets bread enter the loop:
-
-```bash
-toaster.py toast some/SKILL.md      # embeds the capsule; idempotent
-toaster.py soak  some/SKILL.md      # now every guarantee below applies
-```
-
-`soak` refuses raw bread rather than quietly reporting a meaningless pass
-(`--allow-raw` overrides if you really want to watch synthesis wobble).
-
-After toasting, the toasted artifact is the canonical form for that format —
-the raw original is superseded, not lost: every other format's bytes are still
-vaulted in the capsule. Toasting toast is a no-op.
-
-> Bread goes in. **Toast** comes out. Only toast plays in the loop.
-
-## Proving it doesn't drift
-
-`soak` tests three properties a single round trip cannot see:
-
-1. **Fixed point** — after one normalising pass, repeated conversion must stop
-   changing bytes. If cycle 7 ≠ cycle 6, it drifts.
-2. **Path independence** — `agent→skill→agent` and
-   `agent→openrappter→openclaw→rci→agent` must land on the *same bytes*. If
-   the route changes the destination, the format is lying about being a
-   projection.
-3. **Idempotence** — converting to a format twice in a row is a no-op.
-
-```bash
-python3 toaster.py soak my_agent.py another/SKILL.md --depth 3 --cycles 25
-```
-
-```
-6138 conversions across 32 artifact(s)
-NO DRIFT — path-independent, idempotent, and fixed-point stable in every direction.
-```
-
-This is not decoration. It found a real bug: the plain-skill projection was
-emitting `metadata.openclaw` in its frontmatter, so format detection
-reclassified the projection *as* openclaw and the derived file overwrote the
-true original in the capsule vault. 26 chains failed on it. A single round
-trip passed every time.
-
-> **A projection must never be mistakable for the thing it projects from.**
-
-### What round-trips, and what doesn't (stated plainly)
-
-**Canonical artifacts** — a hand-written `agent.py`, `SKILL.md`, or
-`skill.json` — round-trip **byte-exact** through any route, any number of hops.
-
-**A `--bundle` export does not round-trip to itself**, and it is not meant to.
-It is a derived, one-way projection: the markdown gains a "run this" section and
-the sidecar gains a standalone shim.
-
-What *is* guaranteed — and enforced in CI — is **capability identity**:
-
-```
-capability_id(bundled SKILL.md) == capability_id(its source)
-```
-
-**Artifact identity and capability identity are different things**, and
-conflating them makes a true statement report as a false one. Two files that
-mean exactly the same thing will legitimately differ in `preserved` (each vaults
-*itself*, so it can round-trip to itself) and in `provenance` (each took a
-different route to exist). Neither is the capability. `capability_id` hashes
-what the thing *is* — name, description, typed contract, instructions, code —
-and ignores how it got here.
-
-Where a real canonical `agent.py` exists in the capsule, you additionally get
-byte-exact recovery of that file, by any route. Where the agent is *synthesised*
-from a skill, you get capability identity — which is the guarantee that
-actually matters, and the one that holds universally.
-
-## Bolting it onto someone else's registry, without asking them
-
-A migration needs the platform's buy-in — someone has to change a format, ship
-a converter, deprecate a path. **A shim needs nobody's permission.** That is
-what makes it a shim, and it is a falsifiable claim, so here it is falsified:
-
-```bash
-./bridges/openclaw.sh
-```
-
-That fetches openclaw's entire public skill corpus, toasts it, projects every
-skill into a single-file stdlib-only agent, and proves each one converts back
-to openclaw's own bytes exactly. Run against `openclaw/openclaw` (384k★) and
-`openclaw/agent-skills`:
-
-```
-50 skills found; 50 fetched
-toasted 50  |  89 typed param(s), 333 step(s) derived
-9 skill(s) yielded NOTHING machine-recoverable
-50 agent(s) emitted; 50 run standalone and declare a tool contract
-50 byte-exact, 0 drifted
-3600 conversions — NO DRIFT
-```
-
-**openclaw was not modified, not asked, and not waited on.** Their repository is
-read-only to this; nothing is upstreamed.
-
-Every one of those 50 skills is now *additionally* a file anyone can
-`python3 agent.py` with zero install, a standard function-calling tool
-definition, and droppable into any runtime that reads single-file agents — while
-remaining a perfectly normal openclaw skill.
-
-And the honest part: **9 of 50 yielded nothing machine-recoverable.** Prose-heavy
-skills declare little that can be derived conservatively. That is the
-measurement working, and it says something uncomfortable about the corpus rather
-than about the tool.
-
-If openclaw adopts this natively it gets better for everyone — the capsule
-travels from publication, provenance starts at the source instead of at our
-fetch, and authors get the oracle in CI. Nobody has to wait for that.
-
-## Commands
-
-```
-toaster.py convert <path> --to agent|skill|openclaw|openrappter|rci [--bundle] [-o OUT]
-toaster.py inspect <path>               # what survives, layer by layer
-toaster.py roundtrip <path> --via FMT   # byte-exact check, exit 1 on drift
-toaster.py toast <path>...              # raw bread -> loop-safe toast (idempotent)
-toaster.py soak <path>... [--depth N] [--cycles N] [--allow-raw]
-toaster.py selftest
-```
-
-## Formats
-
-| Format | Shape |
-|---|---|
-| `agent` | RAPP brainstem `agent.py` — `BasicAgent` subclass, `self.metadata`, `perform()` |
-| `skill` | `SKILL.md` — YAML frontmatter + markdown body |
-| `openclaw` | `SKILL.md` + `metadata.openclaw` |
-| `openrappter` | `skill.json` + `skill.md` (ClawHub layout) |
-| `rci` | the canonical record itself, as JSON |
-
-Parsing is **AST-only** — the toaster never imports or executes an agent to
-read it.
-
-## Why this exists
-
-A brainstem colonises a host runtime the way a mitochondrion colonises a
-cell: it does not rewrite the host, it trades across a narrow membrane. A
-capability format *is* that membrane, and this is the transport protein.
-Convert a capability into whatever the host natively eats, and the host runs
-it without ever knowing it was RAPP.
-
-That is what keeps single-file agent drops universally tradable — and what
-keeps `agent.py` the grail.
-
----
-
-Apache-2.0. RAPP™ compound marks are claimed by Wildhaven Homes LLC; the
-`RAPP` stem standing alone is deliberately unclaimed. See
-[TRADEMARKS.md](https://kody-w.github.io/rapp-train/TRADEMARKS.md).
+Apache-2.0. RAPP is an independent project, named here to describe
+interoperability.

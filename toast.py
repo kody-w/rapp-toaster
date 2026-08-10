@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compatibility launcher for the authoritative Agent Skill converter."""
+"""Run the authoritative converter bundled in the Agent Skill."""
 
 from pathlib import Path
 import runpy
