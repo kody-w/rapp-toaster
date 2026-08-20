@@ -146,6 +146,68 @@ def _safe_agent_filename(value: str) -> str:
     return value
 
 
+# ── the going-home law ────────────────────────────────────────────────────────
+# A projected agent has to stay safe to drop into any RAPP brainstem. A host's
+# loader conventionally wraps each agent import in `except Exception`, which
+# does NOT catch SystemExit (a BaseException), and nothing catches os._exit — so
+# an agent that terminates the interpreter *at import time* takes the whole host
+# down with it. Verified against a live brainstem: a syntax error, a raising
+# import, and a file with no agent class are all survivable; a module-level exit
+# is not.
+#
+# A capability that cannot go home is not a capability; it is a trap.
+_EXIT_CALLS = {("sys", "exit"), ("os", "_exit"), ("os", "abort"), ("os", "kill")}
+
+
+def _is_main_guard(test) -> bool:
+    """True for `__name__ == "__main__"` (either operand order)."""
+    if not isinstance(test, ast.Compare) or len(test.ops) != 1:
+        return False
+    if not isinstance(test.ops[0], ast.Eq):
+        return False
+    sides = [test.left] + list(test.comparators)
+    names = {n.id for n in sides if isinstance(n, ast.Name)}
+    consts = {c.value for c in sides if isinstance(c, ast.Constant)}
+    return "__name__" in names and "__main__" in consts
+
+
+def _module_level_exit(tree):
+    """Return a reason if the module body can terminate the interpreter on
+    import, else None. Only statements that actually execute at import are
+    considered: a def/class body merely defines code, and a `__main__` guard is
+    false under import — that guard is the standard idiom that lets a RAPP agent
+    ALSO run standalone, so it must never be refused."""
+    def offending(node):
+        for sub in ast.walk(node):
+            if isinstance(sub, ast.Call):
+                fn = sub.func
+                if isinstance(fn, ast.Attribute) and isinstance(fn.value, ast.Name):
+                    if (fn.value.id, fn.attr) in _EXIT_CALLS:
+                        return f"{fn.value.id}.{fn.attr}()"
+                if isinstance(fn, ast.Name) and fn.id in ("exit", "quit"):
+                    return f"{fn.id}()"
+            if isinstance(sub, ast.Raise):
+                exc = sub.exc
+                name = None
+                if isinstance(exc, ast.Call) and isinstance(exc.func, ast.Name):
+                    name = exc.func.id
+                elif isinstance(exc, ast.Name):
+                    name = exc.id
+                if name in ("SystemExit", "KeyboardInterrupt"):
+                    return f"raise {name}"
+        return None
+
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            continue
+        if isinstance(node, ast.If) and _is_main_guard(node.test):
+            continue
+        found = offending(node)
+        if found:
+            return found
+    return None
+
+
 def _validate_parameters(value):
     if not isinstance(value, dict) or value.get("type") != "object":
         raise ValueError("parameters must be a JSON-Schema object")
@@ -458,6 +520,16 @@ def read_agent(raw: bytes, filename: str) -> dict:
                 env[node.targets[0].id] = _eval_node(node.value, env)
             except _Unevaluable:
                 pass
+
+    exiting = _module_level_exit(tree)
+    if exiting:
+        raise SystemExit(
+            f"[FAIL] {filename}: module-level {exiting} would terminate a host "
+            "brainstem on import. A host's loader survives a broken agent but not "
+            "one that exits while being imported, so this agent could not be "
+            "dropped into a brainstem without killing it. Move the call inside a "
+            'function, or guard it with `if __name__ == "__main__":` so it only '
+            "runs when the file is executed directly.")
 
     classes = _class_candidates(tree)
     if not classes:
@@ -1681,6 +1753,29 @@ def cmd_selftest(_a) -> int:
             failures.append("edit to a synthesized agent was IGNORED on re-projection")
         else:
             print("edit-honored probe: file outranks capsule as designed")
+
+    # the going-home law: a projected agent must never be able to kill a host
+    lethal_shapes = {
+        "sys.exit": "import sys\nsys.exit(0)\n",
+        "os._exit": "import os\nos._exit(0)\n",
+        "raise SystemExit": "raise SystemExit(0)\n",
+        "bare exit()": "exit()\n",
+    }
+    for label, prologue in lethal_shapes.items():
+        if not _module_level_exit(ast.parse(prologue + SAMPLE_AGENT)):
+            failures.append(f"module-level {label} was not refused (going-home law)")
+    # ...and the standalone idiom must survive it: __name__ is the module name
+    # under import, so this never runs, and it is how a RAPP agent stays usable
+    # on a host with no brainstem.
+    standalone = SAMPLE_AGENT + (
+        '\n\nimport sys as _sys\n\n'
+        'def _cli():\n    return 0\n\n'
+        'if __name__ == "__main__":\n    _sys.exit(_cli())\n'
+    )
+    if _module_level_exit(ast.parse(standalone)):
+        failures.append("the standalone __main__ idiom was wrongly refused")
+    else:
+        print("going-home law: module-level exits refused, __main__ idiom preserved")
 
     print("SELFTEST " + ("FAIL:\n  - " + "\n  - ".join(failures) if failures else "PASS"))
     return 1 if failures else 0

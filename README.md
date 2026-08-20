@@ -27,6 +27,38 @@ instruction-driven host can use the same `SKILL.md` as the exact specification.
 If the linked file is missing, the original agent restores byte-exact from the
 capsule. The artifact does not change as it moves between hosts.
 
+## The going-home law
+
+A projected agent must stay safe to drop into any RAPP brainstem. A host's
+loader conventionally wraps each agent import in `except Exception` — which does
+**not** catch `SystemExit`, and nothing catches `os._exit`. Verified against a
+live brainstem:
+
+| dropped into a running brainstem | result |
+|---|---|
+| syntax error | survives — logged, keeps serving |
+| raises at import | survives |
+| no agent class | survives |
+| module-level `sys.exit()` / `os._exit()` | **kills the host process** |
+
+So the converter refuses to project an agent whose module body can terminate the
+interpreter on import:
+
+```console
+$ toast.py convert lethal_agent.py --to skill
+[FAIL] lethal_agent.py: module-level os._exit() would terminate a host brainstem
+on import. ... Move the call inside a function, or guard it with
+`if __name__ == "__main__":` so it only runs when the file is executed directly.
+```
+
+The `__main__` guard is explicitly preserved — that block does not run on
+import, and it is exactly what lets a RAPP agent *also* run standalone on a host
+with no brainstem. All 113 agents in
+[`rapp-skills`](https://github.com/kody-w/rapp-skills) pass unchanged.
+
+`toast.py selftest` asserts both halves: every lethal shape is refused, and the
+standalone idiom is not.
+
 ## Use it
 
 Python 3.9+, standard library only. No install, network, credentials, or agent
