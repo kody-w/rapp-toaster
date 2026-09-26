@@ -1,5 +1,9 @@
 # RAPP Agent Converter
 
+<!-- rapp1:network-header:start -->
+[![RAPP/1](https://kody-w.github.io/rapp-hive-public/portfolio/badges/rapp-toaster.svg)](https://github.com/kody-w/rapp-hive-public/blob/main/portfolio/repos/rapp-toaster.md) · **New to RAPP?** [Start here: get your Brainstem →](https://github.com/kody-w/rapp-installer#start-here)
+<!-- rapp1:network-header:end -->
+
 **One conversion boundary: RAPP `agent.py` ↔ Agent Skill. No re-rendering.**
 
 This repository is the standalone home of the
